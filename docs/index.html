@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>나의 여행 기록</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600&family=Noto+Sans+KR:wght@400;500&display=swap" rel="stylesheet">
+<!--
+  나의 여행 기록 · 사이트 쪽
+  이 폴더(docs/)가 GitHub Pages 로 웹에 올라간다. 화면은 이 파일 하나이고, 데이터는 같은 폴더의 trips.json 하나만 읽는다.
+  trips.json 은 어드민의 [게시] 버튼이 만든다. 여기서 직접 고치지 말고 어드민에서 고친 뒤 게시한다.
+  디자인은 마음대로 바꿔도 된다. trips.json 을 읽는 부분만 남아 있으면 어드민과 게시는 그대로 돌아간다.
+
+  지금 디자인: 위에는 다녀온 곳에 핀을 꽂은 구글 지도, 아래에는 해마다 묶은 여행 일지.
+    일지의 [지도에서 보기]를 누르면 지도가 그 핀으로 날아가고, 핀을 누르면 일지의 그 기록이 표시된다.
+  trips.json 에는 좌표가 없다(구글 이용 조건). 핀 위치는 장소 ID(placeId)로 열 때마다 구글에 묻는다.
+  지도용 키가 없거나 핀이 하나도 없으면 지도 칸은 숨고 일지만 나온다.
+  색, 글꼴, 지도 높이만 살짝 바꿀 때는 아래 :root 의 값을 고치면 화면 전체에 반영된다.
+-->
+<style>
+  :root {
+    --paper: #f3f1ea;      /* 종이 */
+    --paper-2: #fbfaf6;
+    --ink: #262823;
+    --muted: #858a80;
+    --line: #d9dcd2;       /* 가는 선 */
+    --accent: #2e6b5a;     /* 핀과 강조색 */
+    --accent-2: #1f4c40;   /* 핀 테두리 */
+    --sans: "Noto Sans KR", -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    --serif: "Noto Serif KR", "AppleMyungjo", serif;
+    --map-h: clamp(320px, 56vh, 580px);   /* 지도 높이 */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #191b18; --paper-2: #222521; --ink: #e6e8e1; --muted: #8d9387; --line: #333731; --accent: #74b49f; --accent-2: #3f7f6b; }
+  }
+  * { box-sizing: border-box; }
+  html, body { overflow-x: clip; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+
+  header { padding: 72px 0 28px; }
+  h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(28px, 4.6vw, 38px); letter-spacing: -0.02em; margin: 0; }
+  .owner { color: var(--muted); font-size: 13.5px; margin: 6px 0 0; }
+
+  /* ── 지도 ── */
+  .mapbox { position: relative; height: var(--map-h); border: 1px solid var(--line); background: var(--paper-2); }
+  #map { position: absolute; inset: 0; }
+  .map-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--muted); font-size: 13.5px; }
+  .iw { font-family: var(--sans); color: #262823; min-width: 160px; max-width: 240px; }
+  .iw b { font-family: var(--serif); font-size: 15px; display: block; margin-bottom: 2px; }
+  .iw div { font-size: 12.5px; color: #5d625a; }
+  .iw a { font-size: 12.5px; color: #2e6b5a; display: inline-block; margin-top: 6px; }
+
+  /* ── 일지 ── */
+  main { padding-bottom: 80px; }
+  .year { margin-top: 56px; }
+  .year-head { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--ink); padding-bottom: 8px; margin-bottom: 8px; }
+  .year-head h2 { font-family: var(--serif); font-weight: 400; font-size: 17px; margin: 0; letter-spacing: 0.01em; }
+  .year-head span { font-size: 13px; color: var(--muted); }
+  .entry { display: grid; grid-template-columns: 64px 1fr; gap: 24px; padding: 22px 12px 22px 0; border-bottom: 1px solid var(--line); transition: background .3s; scroll-margin-top: 24px; }
+  .entry:last-child { border-bottom: 0; }
+  .entry.on { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  .e-day { font-family: var(--serif); font-size: 13px; color: var(--muted); padding: 3px 0 0 8px; }
+  .e-title { font-family: var(--serif); font-weight: 600; font-size: 17px; line-height: 1.45; }
+  .e-flag { margin-right: 6px; font-family: var(--sans); }
+  .e-meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .e-memo { margin: 12px 0 0; line-height: 1.85; white-space: pre-line; }
+  .e-links { display: flex; gap: 16px; margin-top: 12px; }
+  .e-links a, .e-links button { border: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+  footer { border-top: 1px solid var(--line); padding: 22px 0 40px; color: var(--muted); font-size: 12.5px; }
+  footer a { color: inherit; }
+  .empty { color: var(--muted); padding: 60px 0; }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 0 16px; }
+    header { padding-top: 48px; }
+    .entry { grid-template-columns: 1fr; gap: 4px; padding-right: 0; }
+    .e-day { padding-left: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="title">나의 여행 기록</h1>
+    <p class="owner" id="owner"></p>
+  </header>
+  <div class="mapbox" id="mapBox" hidden><div id="map"></div></div>
+  <main id="trips"></main>
+  <footer>
+    <!-- 구글 지도 이용 조건. 구글 지도·장소 정보를 쓴다는 표시를 둔다. 지우지 말 것 -->
+    지도와 장소 정보 제공 <a href="https://www.google.com/maps" target="_blank" rel="noopener">Google Maps</a> · <span id="updated"></span>
+  </footer>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// 국가 코드 두 글자(KR)를 국기 이모지(🇰🇷)로
+const flag = cc => /^[A-Z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : '';
+const mapLink = t => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t.place || t.country)
+  + (t.placeId ? '&query_place_id=' + encodeURIComponent(t.placeId) : '');
+const fullDate = d => { const [y, m, dd] = (d || '').split('-'); return y ? `${y}년 ${Number(m)}월 ${Number(dd)}일` : ''; };
+let TRIPS = [];
+const PINS = new Map();   // placeId → { marker, position, trips }
+let map = null, info = null;
+
+// ── 일지 ──
+function entryHtml(t) {
+  const [, m, d] = (t.date || '').split('-');
+  return `<article class="entry" id="trip-${t.id}">
+      <div class="e-day">${m ? `${m}.${d}` : ''}</div>
+      <div>
+        <div class="e-title"><span class="e-flag">${flag(t.countryCode)}</span>${esc(t.place || t.country)}</div>
+        <div class="e-meta">${esc([t.place ? t.country : '', fullDate(t.date)].filter(Boolean).join(' · '))}</div>
+        ${t.memo ? `<p class="e-memo">${esc(t.memo)}</p>` : ''}
+        <div class="e-links">
+          ${t.placeId ? `<button data-pin="${esc(t.placeId)}" data-id="${t.id}" hidden>지도에서 보기</button>` : ''}
+          <a href="${esc(mapLink(t))}" target="_blank" rel="noopener">구글 지도 ↗</a>
+        </div>
+      </div>
+    </article>`;
+}
+
+function drawList() {
+  if (!TRIPS.length) { $('#trips').innerHTML = '<p class="empty">아직 기록이 없어요.</p>'; return; }
+  const years = [...new Set(TRIPS.map(t => (t.date || '').slice(0, 4)))];   // trips.json 이 이미 최근 순이다
+  $('#trips').innerHTML = years.map(y => {
+    const list = TRIPS.filter(t => (t.date || '').slice(0, 4) === y);
+    const n = new Set(list.map(t => t.country)).size;
+    return `<section class="year">
+      <div class="year-head"><h2>${esc(y || '날짜 모름')}</h2><span>${list.length}곳 · ${n}개국</span></div>
+      ${list.map(entryHtml).join('')}
+    </section>`;
+  }).join('');
+}
+
+// ── 지도 ──
+function mapNote(msg) {
+  $('#mapBox').hidden = false;
+  $('#mapBox').innerHTML = `<div class="map-note">${esc(msg)}</div>`;
+}
+function loadMapsScript(key) {
+  return new Promise((ok, fail) => {
+    window.__mapsReady = ok;
+    // 키가 거절되면 구글이 이 함수를 부른다. 지도 칸에 원인을 적는다
+    window.gm_authFailure = () => mapNote('지도를 불러오지 못했어요. 지도용 키의 웹사이트 제한에 이 주소가 들어 있는지 확인해 주세요.');
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&loading=async&language=ko&callback=__mapsReady`;
+    s.async = true; s.onerror = () => fail(new Error('script'));
+    document.head.appendChild(s);
+  });
+}
+function infoHtml(p) {
+  const t = p.trips[0];
+  return `<div class="iw"><b>${flag(t.countryCode)} ${esc(t.place || t.country)}</b>
+    ${p.trips.map(x => `<div>${esc(fullDate(x.date))}</div>`).join('')}
+    <a href="${esc(mapLink(t))}" target="_blank" rel="noopener">구글 지도에서 보기 ↗</a></div>`;
+}
+function openPin(placeId) {
+  const p = PINS.get(placeId); if (!p) return;
+  info.setContent(infoHtml(p));
+  info.open({ map, anchor: p.marker });
+}
+function markEntry(id) {
+  document.querySelectorAll('.entry.on').forEach(e => e.classList.remove('on'));
+  const el = document.getElementById('trip-' + id); if (!el) return;
+  el.classList.add('on');
+  el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+}
+
+async function drawMap(cfg) {
+  const pinned = TRIPS.filter(t => t.placeId);
+  if (!cfg || !cfg.key || !pinned.length) return;          // 키나 핀이 없으면 지도 칸을 숨긴 채 둔다
+  $('#mapBox').hidden = false;
+  try { await loadMapsScript(cfg.key); } catch (e) { return mapNote('지도를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'); }
+  const { Map, InfoWindow } = await google.maps.importLibrary('maps');
+  const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary('marker');
+  const { Place } = await google.maps.importLibrary('places');
+  const css = getComputedStyle(document.documentElement);
+  map = new Map($('#map'), {
+    center: { lat: 25, lng: 20 }, zoom: 2, mapId: cfg.mapId || 'DEMO_MAP_ID', colorScheme: 'FOLLOW_SYSTEM',
+    mapTypeControl: false, streetViewControl: false, gestureHandling: 'cooperative',
+  });
+  info = new InfoWindow();
+
+  // 같은 곳을 여러 번 다녀왔으면 핀 하나에 묶는다
+  const groups = new globalThis.Map();
+  pinned.forEach(t => groups.set(t.placeId, [...(groups.get(t.placeId) || []), t]));
+  const bounds = new google.maps.LatLngBounds();
+  await Promise.all([...groups].map(async ([placeId, trips]) => {
+    try {
+      const place = new Place({ id: placeId });
+      await place.fetchFields({ fields: ['location'] });
+      if (!place.location) return;
+      const pin = new PinElement({ background: css.getPropertyValue('--accent').trim(), borderColor: css.getPropertyValue('--accent-2').trim(), glyphColor: '#ffffff' });
+      const marker = new AdvancedMarkerElement({ map, position: place.location, content: pin.element, title: trips[0].place || trips[0].country, gmpClickable: true });
+      marker.addListener('click', () => { openPin(placeId); markEntry(trips[0].id); });
+      PINS.set(placeId, { marker, position: place.location, trips });
+      bounds.extend(place.location);
+    } catch (e) { console.warn('핀 위치를 받지 못했어요', placeId, e); }
+  }));
+  if (!PINS.size) return mapNote('핀 위치를 받지 못했어요. 지도용 키에 Places API (New)가 켜져 있는지 확인해 주세요.');
+  if (PINS.size === 1) { map.setCenter([...PINS.values()][0].position); map.setZoom(11); }
+  else map.fitBounds(bounds, 56);
+  // 핀을 받은 기록에만 [지도에서 보기]를 보여 준다
+  document.querySelectorAll('[data-pin]').forEach(b => { if (PINS.has(b.dataset.pin)) b.hidden = false; });
+}
+
+$('#trips').addEventListener('click', e => {
+  const b = e.target.closest('[data-pin]'); if (!b || !map) return;
+  const p = PINS.get(b.dataset.pin); if (!p) return;
+  map.panTo(p.position);
+  if (map.getZoom() < 9) map.setZoom(11);
+  openPin(b.dataset.pin); markEntry(b.dataset.id);
+  $('#mapBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+function render(data) {
+  const site = data.site || {};
+  document.title = site.title || '나의 여행 기록';
+  $('#title').textContent = site.title || '나의 여행 기록';
+  TRIPS = data.trips || [];
+  const countries = new Set(TRIPS.map(t => t.country)).size;
+  $('#owner').textContent = (site.owner ? `${site.owner} · ` : '') + `${TRIPS.length}곳 · ${countries}개국`;
+  $('#updated').textContent = data.updated ? `${data.updated} 업데이트` : '';
+  drawList();
+  drawMap(data.map).catch(e => { console.error(e); mapNote('지도를 그리다 문제가 생겼어요.'); });
+}
+
+// 캐시 때문에 게시한 내용이 늦게 보이지 않게 매번 새로 받는다
+fetch('trips.json?t=' + Date.now()).then(r => r.json()).then(render)
+  .catch(() => { $('#trips').innerHTML = '<p class="empty">trips.json 을 읽지 못했어요. 어드민에서 [게시]를 눌렀는지 확인해 주세요.</p>'; });
+</script>
+</body>
+</html>

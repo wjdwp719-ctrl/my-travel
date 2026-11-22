@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>여행 기록 어드민</title>
+<!--
+  나의 여행 기록 · 어드민 쪽 (내 컴퓨터에서만 열린다)
+  장소를 찾고, 기록하고, 고치고, [게시]로 사이트 파일(docs/trips.json)을 만든다.
+  서버(server.py)에 묻는 주소
+    GET /api/trips  내 기록 목록    GET /api/search?q=  구글 장소 검색
+    POST /api/trips 기록하기         PUT·DELETE /api/trips/번호  고치기·지우기
+    POST /api/publish  게시
+-->
+<style>
+  :root { --bg: #f2f4f1; --card: #fff; --ink: #1d1f1c; --muted: #81877d; --line: #dfe3db; --accent: #2e6b5a; --ok: #2f6b45; --warn: #fff4d6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14.5px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  button, input, select, textarea { font: inherit; }
+  .top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 20px; background: var(--ink); color: #fff; }
+  .top h1 { font-size: 16px; margin: 0 auto 0 0; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 7px; padding: 7px 13px; cursor: pointer; text-decoration: none; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.small { padding: 3px 9px; font-size: 13px; }
+  .badge { font-size: 12.5px; padding: 3px 9px; border-radius: 99px; background: #ffffff22; }
+  .badge.need { background: #f2c94c; color: #222; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 18px 20px 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+  .panel h2 { font-size: 15px; margin: 0 0 12px; }
+  .full { grid-column: 1 / -1; }
+  .notice { background: var(--warn); border: 1px solid #ecd9a0; border-radius: 10px; padding: 12px 16px; }
+  .notice code, .guide code { background: #0000000d; padding: 1px 5px; border-radius: 4px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input[type=text], input[type=date], textarea { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; background: #fff; width: 100%; }
+  textarea { min-height: 90px; resize: vertical; }
+  label { display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  /* 검색 결과 */
+  .results { display: grid; gap: 4px; margin-top: 14px; }
+  .result { border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; background: none; text-align: left; cursor: pointer; display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: start; }
+  .result:hover, .result.on { border-color: var(--accent); background: #2e6b5a0d; }
+  .result .flag { font-size: 20px; line-height: 1.2; }
+  .result b { display: block; font-size: 14px; }
+  .result span { font-size: 12.5px; color: var(--muted); }
+  .credit { font-size: 11.5px; color: var(--muted); text-align: right; margin-top: 6px; }
+
+  /* 입력 폼 */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pin { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .pin a { color: inherit; }
+
+  /* 내 기록 목록 */
+  .list { display: grid; gap: 4px; }
+  .item { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center; padding: 6px; border-radius: 8px; }
+  .item:hover { background: #00000006; }
+  .item .flag { font-size: 20px; text-align: center; }
+  .item b { font-weight: 600; }
+  .sample { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+  .guide { line-height: 1.7; }
+  .guide pre { background: #1d1f1c; color: #f2f4f1; padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+  .toast.err { background: #b0412e; }
+  @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>✈️ 여행 기록 어드민</h1>
+  <span class="badge" id="pubState"></span>
+  <a class="btn small" href="/site/" target="_blank">사이트 미리보기 ↗</a>
+  <button class="btn small primary" id="publishBtn">게시</button>
+</div>
+
+<div class="wrap">
+  <div class="full notice" id="keyNotice" hidden>
+    <b>구글 검색용 키(GOOGLE_MAPS_API_KEY)가 아직 없어요.</b> 장소 검색을 하려면 키가 필요해요. 이 폴더의 <code>.env.example</code> 파일을 복사해서 이름을 <code>.env</code>로 바꾸고, 안에 키를 붙여 넣은 뒤 어드민을 껐다 켜 주세요.
+    받는 법은 README의 "구글 키 넣기"에 있어요. 키 없이도 아래 "직접 적기"로 기록할 수 있어요. 그 기록은 지도에 핀 없이 목록에만 나가요.
+  </div>
+  <div class="full notice" id="browserKeyNotice" hidden>
+    <b>사이트 지도용 키(GOOGLE_MAPS_BROWSER_KEY)가 아직 없어요.</b> 지금 게시하면 사이트에 지도 없이 목록만 나와요. README의 "구글 키 넣기" 3번을 봐 주세요.
+  </div>
+  <div class="full notice" id="sampleNotice" hidden>
+    지금 기록 중 <b><span id="sampleCount"></span>건은 샘플</b>이에요. 내 여행을 몇 건 적은 뒤 지워 주세요.
+    <button class="btn small" id="clearSamples">샘플 지우기</button>
+  </div>
+
+  <section class="panel">
+    <h2>1. 장소 찾기</h2>
+    <div class="row">
+      <input type="text" id="q" placeholder="장소 이름, 도시, 주소 (예: 교토 청수사)" style="flex:1">
+      <button class="btn primary" id="searchBtn">찾기</button>
+    </div>
+    <p class="muted">검색에 없는 곳은 <a href="#" id="manualBtn">직접 적기</a>로 기록할 수 있어요. 지도에 핀은 없이 목록에만 나가요.</p>
+    <div class="results" id="results"></div>
+  </section>
+
+  <section class="panel">
+    <h2 id="formTitle">2. 기록하기</h2>
+    <div id="formArea"><p class="muted">왼쪽에서 장소를 찾아 누르면 여기에 입력 칸이 열려요.</p></div>
+  </section>
+
+  <section class="panel">
+    <h2>내 여행 기록 <span class="muted" id="count"></span></h2>
+    <div class="row" style="margin-bottom:12px">
+      <input type="text" id="siteTitle" placeholder="사이트 이름" style="flex:2">
+      <input type="text" id="siteOwner" placeholder="기록한 사람 (선택)" style="flex:1.4">
+      <button class="btn small" id="saveSite">저장</button>
+    </div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <section class="panel guide">
+    <h2>3. 웹에 올리기</h2>
+    <p><b>게시</b>를 누르면 <code>docs/trips.json</code>이 새로 써져요. 여기까지는 내 컴퓨터 안의 일이에요. <b>사이트 미리보기</b>로 확인한 뒤 GitHub에 올리면 웹에 반영돼요.</p>
+    <p>Claude Code(코덱스)에게 이렇게 말하면 돼요.</p>
+    <pre>여행 기록을 게시했어. 바뀐 파일을 커밋하고 GitHub에 올려줘.
+올리기 전에 .env 파일이 올라가지 않는지 확인해줘.</pre>
+    <p>직접 한다면 터미널에서</p>
+    <pre>git add .
+git commit -m "여행: 새 기록"
+git push</pre>
+    <p class="muted">처음 한 번은 저장소를 만들고 GitHub Pages를 켜야 해요. README의 "웹에 처음 올리기"를 봐 주세요. push 하고 1~2분 뒤에 사이트가 바뀌어요.</p>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// 국가 코드 두 글자(KR)를 국기 이모지(🇰🇷)로. 코드가 없으면 핀 모양
+const flag = cc => /^[A-Z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : '📍';
+const mapLink = t => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t.place || t.country)
+  + (t.placeId ? '&query_place_id=' + encodeURIComponent(t.placeId) : '');
+const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+let STATE = { trips: [] };
+let found = [];          // 마지막 검색 결과
+let editing = null;      // 고치는 중인 기록 번호. null 이면 새로 기록
+
+function toast(msg, err) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(t._h); t._h = setTimeout(() => t.className = 'toast', err ? 6000 : 2200);
+}
+async function api(path, opt = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || '서버 오류 ' + res.status);
+  return data;
+}
+
+// ── 내 기록 목록 ──
+async function load() {
+  STATE = await api('/api/trips');
+  $('#keyNotice').hidden = STATE.hasKey;
+  $('#browserKeyNotice').hidden = STATE.hasBrowserKey;
+  const samples = STATE.trips.filter(t => t.sample).length;
+  $('#sampleNotice').hidden = !samples; $('#sampleCount').textContent = samples;
+  $('#pubState').textContent = STATE.unpublished ? '게시하지 않은 변경 있음' : '게시됨';
+  $('#pubState').className = 'badge' + (STATE.unpublished ? ' need' : '');
+  const countries = new Set(STATE.trips.map(t => t.country)).size;
+  $('#count').textContent = `${STATE.trips.length}건 · ${countries}개국`;
+  $('#siteTitle').value = STATE.site?.title || ''; $('#siteOwner').value = STATE.site?.owner || '';
+  const trips = [...STATE.trips].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id - a.id));
+  $('#list').innerHTML = trips.map(t => `<div class="item">
+      <div class="flag">${flag(t.countryCode)}</div>
+      <div><b>${esc(t.place || t.country)}</b>${t.sample ? '<span class="sample">샘플</span>' : ''}${t.placeId ? '' : ' <span class="muted">(핀 없음)</span>'}
+        <div class="muted">${esc([t.country, t.date].filter(Boolean).join(' · '))}</div></div>
+      <div class="row"><button class="btn small" data-edit="${t.id}">고치기</button><button class="btn small" data-del="${t.id}">지우기</button></div>
+    </div>`).join('') || '<p class="muted">아직 기록이 없어요.</p>';
+}
+
+// ── 1. 찾기 ──
+async function search() {
+  const q = $('#q').value.trim(); if (!q) return;
+  $('#results').innerHTML = '<p class="muted">찾는 중…</p>';
+  try {
+    found = (await api('/api/search?q=' + encodeURIComponent(q))).items;
+    $('#results').innerHTML = found.length
+      ? found.map((it, i) => `<button class="result" data-i="${i}">
+          <span class="flag">${flag(it.countryCode)}</span>
+          <span><b>${esc(it.name)}</b><span>${esc(it.address)}</span></span></button>`).join('')
+        + '<div class="credit">검색 결과 제공 Google Maps</div>'
+      : '<p class="muted">찾은 곳이 없어요. 도시 이름을 같이 적어 보세요. (예: 파리 에펠탑)</p>';
+  } catch (e) { $('#results').innerHTML = ''; toast(e.message, true); }
+}
+
+// ── 2. 기록·고치기 폼 ──
+const EMPTY_FORM = '<p class="muted">왼쪽에서 장소를 찾아 누르면 여기에 입력 칸이 열려요.</p>';
+function closeForm() {
+  editing = null; $('#formTitle').textContent = '2. 기록하기'; $('#formArea').innerHTML = EMPTY_FORM;
+  document.querySelectorAll('.result').forEach(r => r.classList.remove('on'));
+}
+function showForm(trip, id = null) {
+  editing = id;
+  $('#formTitle').textContent = id ? '고치기' : '2. 기록하기';
+  const t = { date: today(), ...trip };
+  $('#formArea').innerHTML = `
+    <label>장소 이름</label><input type="text" id="f_place" value="${esc(t.place || '')}" placeholder="예: 청수사 (비워도 돼요)">
+    <div class="grid2">
+      <div><label>국가 *</label><input type="text" id="f_country" value="${esc(t.country || '')}" placeholder="예: 일본"></div>
+      <div><label>날짜 *</label><input type="date" id="f_date" value="${esc(t.date || '')}"></div>
+    </div>
+    <label>메모</label><textarea id="f_memo" placeholder="그날 있었던 일, 먹은 것, 다음에 또 가고 싶은 이유">${esc(t.memo || '')}</textarea>
+    <div class="pin">${t.placeId
+      ? `📍 지도 핀 연결됨 · <a href="${esc(mapLink(t))}" target="_blank" rel="noopener">구글 지도에서 확인 ↗</a> · <a href="#" id="unpin">핀 빼기</a>`
+      : '핀 없음. 지도에 꽂으려면 왼쪽에서 장소를 찾아 고르세요' + (id ? ' (고르면 이 기록에 핀이 연결돼요)' : '')}</div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="saveTrip">${id ? '고친 내용 저장' : '기록하기'}</button>
+      <button class="btn" id="cancelTrip">취소</button>
+    </div>`;
+  $('#saveTrip').onclick = () => saveTrip(t);
+  $('#cancelTrip').onclick = closeForm;
+  $('#unpin') && ($('#unpin').onclick = e => { e.preventDefault(); keepTyped(t); showForm({ ...t, placeId: '', countryCode: t.countryCode }, editing); });
+}
+// 폼을 다시 그릴 때 이미 적은 내용이 지워지지 않게
+function keepTyped(t) {
+  const v = id => $('#' + id)?.value;
+  if ($('#f_country')) Object.assign(t, { place: v('f_place'), country: v('f_country'), date: v('f_date'), memo: v('f_memo') });
+}
+
+async function saveTrip(base) {
+  const v = id => $('#' + id)?.value;
+  const body = { ...base, place: v('f_place'), country: v('f_country'), date: v('f_date'), memo: v('f_memo') };
+  if (!body.country.trim()) return toast('국가를 적어 주세요', true);
+  try {
+    if (editing) await api('/api/trips/' + editing, { method: 'PUT', body });
+    else await api('/api/trips', { method: 'POST', body });
+    toast(editing ? '고쳤어요' : `「${body.place || body.country}」을 기록했어요`);
+    closeForm(); await load();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ── 이벤트 ──
+$('#searchBtn').onclick = search;
+$('#q').onkeydown = e => { if (e.key === 'Enter') search(); };
+$('#manualBtn').onclick = e => { e.preventDefault(); showForm({ place: '', country: '', placeId: '' }); };
+$('#results').onclick = e => {
+  const el = e.target.closest('.result'); if (!el) return;
+  document.querySelectorAll('.result').forEach(r => r.classList.toggle('on', r === el));
+  const it = found[Number(el.dataset.i)];
+  const pick = { placeId: it.placeId, place: it.name, country: it.country, countryCode: it.countryCode };
+  if (editing) {   // 고치는 중이면 적어 둔 날짜·메모는 두고 장소만 바꾼다
+    const cur = STATE.trips.find(x => x.id === editing) || {};
+    const t = { ...cur }; keepTyped(t);
+    showForm({ ...t, ...pick }, editing);
+  } else showForm(pick);
+};
+$('#list').onclick = async e => {
+  const ed = e.target.dataset.edit, del = e.target.dataset.del;
+  if (ed) { const t = STATE.trips.find(x => x.id == ed); showForm(t, t.id); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  if (del) {
+    const t = STATE.trips.find(x => x.id == del);
+    if (!confirm(`「${t.place || t.country}」 기록을 지울까요?`)) return;
+    await api('/api/trips/' + del, { method: 'DELETE' }); toast('지웠어요'); load();
+  }
+};
+$('#saveSite').onclick = async () => {
+  await api('/api/site', { method: 'POST', body: { title: $('#siteTitle').value, owner: $('#siteOwner').value } });
+  toast('사이트 이름을 저장했어요'); load();
+};
+$('#clearSamples').onclick = async () => {
+  if (!confirm('샘플 기록을 모두 지울까요? 내가 적은 기록과 고친 샘플은 남아요.')) return;
+  await api('/api/clear-samples', { method: 'POST' }); toast('샘플을 지웠어요'); load();
+};
+$('#publishBtn').onclick = async () => {
+  try {
+    const r = await api('/api/publish', { method: 'POST' });
+    toast(`${r.count}건을 게시했어요. 이제 GitHub에 올리면 웹에 반영돼요`); load();
+  } catch (e) { toast(e.message, true); }
+};
+load().catch(e => toast(e.message, true));
+</script>
+</body>
+</html>

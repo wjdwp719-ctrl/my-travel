@@ -1,0 +1,49 @@
+{
+ "site": {
+  "title": "나의 여행 기록",
+  "owner": ""
+ },
+ "map": {
+  "key": "AIzaSyANKTRkAcj6rFbBH0fkL4TdR-4XzW0y11k",
+  "mapId": "DEMO_MAP_ID"
+ },
+ "updated": "2026-11-22",
+ "trips": [
+  {
+   "id": 2,
+   "place": "카이로",
+   "country": "이집트",
+   "countryCode": "EG",
+   "date": "2026-10-02",
+   "memo": "",
+   "placeId": "ChIJ674hC6Y_WBQRujtC6Jay33k"
+  },
+  {
+   "id": 1,
+   "place": "다합 블루 홀",
+   "country": "이집트",
+   "countryCode": "EG",
+   "date": "2026-10-01",
+   "memo": "",
+   "placeId": "ChIJaT1Yp4c1qxURL7vxxs-19Tk"
+  },
+  {
+   "id": 4,
+   "place": "타이베이",
+   "country": "대만",
+   "countryCode": "TW",
+   "date": "2026-07-16",
+   "memo": "",
+   "placeId": "ChIJi73bYWusQjQRgqQGXK260bw"
+  },
+  {
+   "id": 3,
+   "place": "삿포로시",
+   "country": "일본",
+   "countryCode": "JP",
+   "date": "2026-02-26",
+   "memo": "",
+   "placeId": "ChIJMzaXWnXUCl8R1bqHRp1-kzM"
+  }
+ ]
+}
